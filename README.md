@@ -1,53 +1,52 @@
 # Linux Screen Recorder
 
-Records screen with system audio (PulseAudio monitor), region selection, and system tray indicator.
+Lightweight screen recorder for Ubuntu/Linux. Select any area on screen and record it with system audio.
 
-## Dependencies
+## How to install
 
-### System packages
+Open a terminal and run these commands one by one:
 
 ```bash
 sudo apt install ffmpeg slop xclip xdotool x11-utils xinput libnotify-bin pulseaudio-utils
-```
-
-### Python packages
-
-```bash
 pip install pystray Pillow python-xlib
 ```
 
-## Usage
+## How to use
 
-Run:
+**Step 1:** Run the app
 
 ```bash
 python3 screen_recorder.py
 ```
 
-Press **Ctrl+Shift+Print Screen** to select a region and start recording. Press the same shortcut again to stop. The recording is saved to `~/Videos/` and the file path is copied to your clipboard.
+**Step 2:** Press **Ctrl + Shift + Print Screen**
 
-To use a different shortcut, pass `--shortcut`:
+Your mouse cursor will turn into a crosshair. Click and drag to select the area you want to record.
+
+**Step 3:** Press **Ctrl + Shift + Print Screen** again to stop
+
+The recording is saved to `~/Videos/` and copied to your clipboard — just press **Ctrl + V** anywhere to share it.
+
+## Change the shortcut
+
+Don't like the default key? Use `--shortcut`:
 
 ```bash
-python3 screen_recorder.py --shortcut super+r             # Super+R to toggle
-python3 screen_recorder.py --shortcut ctrl+alt+f5         # Ctrl+Alt+F5
-python3 screen_recorder.py --shortcut print_screen        # Just Print Screen
+python3 screen_recorder.py --shortcut super+r           # Windows key + R
+python3 screen_recorder.py --shortcut ctrl+alt+f5       # Ctrl + Alt + F5
+python3 screen_recorder.py --shortcut print_screen      # Just Print Screen
 ```
 
-### Options
+**Modifiers:** `ctrl`, `shift`, `alt`, `super` (Windows key)  
+**Keys:** `print_screen`, `f1`–`f12`, `esc`, `space`, `enter`, arrows (`up`, `down`, `left`, `right`), or any letter
 
-| Flag | Description |
-|------|-------------|
-| `--shortcut`, `-s` | Custom hotkey (default: `ctrl+shift+print_screen`). Format: `mod+key` — modifiers: `ctrl`, `shift`, `alt`, `super`; keys: `print_screen`, `f1`–`f12`, `esc`, `space`, `enter`, `tab`, `home`, `end`, `delete`, `insert`, `page_up`, `page_down`, arrows (`up`, `down`, `left`, `right`), or any single character |
-| `--log-file`, `-l` | Log output to a file (useful for autostart) |
+## Start automatically on login
 
-### Autostart (start on login)
+1. Open **Startup Applications** from your app menu
+2. Click **Add**
+3. Fill in:
+   - **Name:** Screen Recorder
+   - **Command:** `python3 /home/goldest/Desktop/screen_recorder.py --log-file ~/.local/share/screen-recorder/log`
+4. Click **Add**
 
-Add to **Startup Applications** (GNOME Tweaks or `gnome-session-properties`):
-
-```
-Name: Screen Recorder
-Command: python3 /path/to/screen_recorder.py --log-file ~/.local/share/screen-recorder/log
-```
-
-The tray icon appears in your system tray. Right-click to start/stop recording or quit.
+A red dot icon will appear in your system tray when the app is running. Right-click it to start/stop recording.
