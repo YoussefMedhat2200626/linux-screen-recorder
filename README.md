@@ -7,8 +7,7 @@ Lightweight screen recorder for Ubuntu/Linux. Select any area on screen and reco
 Open a terminal and run these commands one by one:
 
 ```bash
-sudo apt install ffmpeg slop xclip xdotool x11-utils xinput libnotify-bin pulseaudio-utils
-pip install pystray Pillow python-xlib
+sudo apt install ffmpeg slop xclip xdotool x11-utils xinput libnotify-bin pulseaudio-utils python3-pystray python3-pil python3-xlib
 ```
 
 ### What each app does
@@ -23,9 +22,9 @@ pip install pystray Pillow python-xlib
 | `xinput` | Listens for your shortcut key (e.g. Print Screen) |
 | `libnotify-bin` | Shows desktop notifications ("Recording started", "Saved") |
 | `pulseaudio-utils` | Provides `pactl` to find the system audio source |
-| `pystray` (Python) | Shows the red dot icon in the system tray |
-| `Pillow` (Python) | Draws the tray icon |
-| `python-xlib` (Python) | Detects which keys are pressed for the shortcut |
+| `python3-pystray` | Shows the red dot icon in the system tray |
+| `python3-pil` | Draws the tray icon |
+| `python3-xlib` | Detects which keys are pressed for the shortcut |
 
 ## How to use
 
