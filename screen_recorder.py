@@ -175,7 +175,7 @@ class ScreenRecorder:
     def _select_region(self):
         try:
             r = subprocess.run(
-                ["slop", "--window", "--bordersize=3", "--color=1,0.3,0,0.9"],
+                ["slop", "--highlight", "--bordersize=2", "--color=0,0,0,0.7"],
                 capture_output=True, text=True, timeout=30
             )
             if r.returncode != 0 or not r.stdout.strip():
