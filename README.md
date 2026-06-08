@@ -11,6 +11,22 @@ sudo apt install ffmpeg slop xclip xdotool x11-utils xinput libnotify-bin pulsea
 pip install pystray Pillow python-xlib
 ```
 
+### What each app does
+
+| App | Purpose |
+|-----|---------|
+| `ffmpeg` | Records the screen and audio, encodes the video |
+| `slop` | Lets you click and drag to select the area to record |
+| `xclip` | Copies the video file to clipboard so you can paste it |
+| `xdotool` | Gets your screen size |
+| `x11-utils` | Provides `xdpyinfo` (fallback for screen size) |
+| `xinput` | Listens for your shortcut key (e.g. Print Screen) |
+| `libnotify-bin` | Shows desktop notifications ("Recording started", "Saved") |
+| `pulseaudio-utils` | Provides `pactl` to find the system audio source |
+| `pystray` (Python) | Shows the red dot icon in the system tray |
+| `Pillow` (Python) | Draws the tray icon |
+| `python-xlib` (Python) | Detects which keys are pressed for the shortcut |
+
 ## How to use
 
 **Step 1:** Kill any old instances, then run the app
