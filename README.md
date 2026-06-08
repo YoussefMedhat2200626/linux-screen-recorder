@@ -33,7 +33,6 @@ Don't like the default key? Use `--shortcut`:
 
 ```bash
 python3 screen_recorder.py --shortcut super+r           # Windows key + R
-python3 screen_recorder.py --shortcut ctrl+alt+f5       # Ctrl + Alt + F5
 python3 screen_recorder.py --shortcut print_screen      # Just Print Screen
 ```
 
