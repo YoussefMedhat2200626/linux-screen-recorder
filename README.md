@@ -16,7 +16,8 @@ pip install pystray Pillow python-xlib
 **Step 1:** Kill any old instances, then run the app
 
 ```bash
-pkill -f "python.*screen_recorder" 2>/dev/null; python3 ~/Desktop/screen_recorder.py
+pkill -f "python.*screen_recorder" 2>/dev/null
+python3 ~/Desktop/screen_recorder.py
 ```
 
 **Step 2:** Press **Ctrl + Shift + Print Screen**
@@ -32,8 +33,11 @@ The recording is saved to `~/Videos/` and copied to your clipboard — just pres
 Don't like the default key? Use `--shortcut`:
 
 ```bash
-pkill -f "python.*screen_recorder" 2>/dev/null; python3 ~/Desktop/screen_recorder.py --shortcut super+r
-pkill -f "python.*screen_recorder" 2>/dev/null; python3 ~/Desktop/screen_recorder.py --shortcut print_screen
+pkill -f "python.*screen_recorder" 2>/dev/null
+python3 ~/Desktop/screen_recorder.py --shortcut super+r
+
+pkill -f "python.*screen_recorder" 2>/dev/null
+python3 ~/Desktop/screen_recorder.py --shortcut print_screen
 ```
 
 **Modifiers:** `ctrl`, `shift`, `alt`, `super` (Windows key)  
