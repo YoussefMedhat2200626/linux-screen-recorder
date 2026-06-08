@@ -26,11 +26,19 @@ python3 screen_recorder.py
 
 Press **Ctrl+Shift+Print Screen** to select a region and start recording. Press the same shortcut again to stop. The recording is saved to `~/Videos/` and the file path is copied to your clipboard.
 
+To use a different shortcut, pass `--shortcut`:
+
+```bash
+python3 screen_recorder.py --shortcut super+r             # Super+R to toggle
+python3 screen_recorder.py --shortcut ctrl+alt+f5         # Ctrl+Alt+F5
+python3 screen_recorder.py --shortcut print_screen        # Just Print Screen
+```
+
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `--shortcut`, `-s` | Custom hotkey (default: `ctrl+shift+print_screen`) |
+| `--shortcut`, `-s` | Custom hotkey (default: `ctrl+shift+print_screen`). Format: `mod+key` — modifiers: `ctrl`, `shift`, `alt`, `super`; keys: `print_screen`, `f1`–`f12`, `esc`, `space`, `enter`, `tab`, `home`, `end`, `delete`, `insert`, `page_up`, `page_down`, arrows (`up`, `down`, `left`, `right`), or any single character |
 | `--log-file`, `-l` | Log output to a file (useful for autostart) |
 
 ### Autostart (start on login)
