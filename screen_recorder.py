@@ -367,18 +367,17 @@ class RecordingIndicator:
         icon.run()
 
 
-def _copy_to_clipboard(text):
+def _copy_to_clipboard(filepath):
+    from urllib.parse import quote
+    file_uri = f"file://{quote(filepath)}"
+    uri_list = f"{file_uri}\r\n"
+
     try:
-        subprocess.run(
-            ["xclip", "-selection", "clipboard"],
-            input=text.encode(), timeout=2
-        )
+        subprocess.run(["xclip", "-selection", "clipboard", "-t", "text/uri-list"], input=uri_list.encode(), timeout=2)
+        subprocess.run(["xclip", "-selection", "clipboard"], input=filepath.encode(), timeout=2)
     except FileNotFoundError:
         try:
-            subprocess.run(
-                ["xsel", "-i", "-b"],
-                input=text.encode(), timeout=2
-            )
+            subprocess.run(["xsel", "-i", "-b"], input=uri_list.encode(), timeout=2)
         except Exception:
             pass
     except Exception:
