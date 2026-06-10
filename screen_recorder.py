@@ -8,6 +8,9 @@ import argparse
 import threading
 import queue
 import re
+import tempfile
+import glob
+import time
 
 from Xlib import display as xdisplay, XK
 
@@ -150,6 +153,30 @@ class XInputListener:
                 self._proc.kill()
 
 
+def _get_monitor_source():
+    try:
+        r = subprocess.run(["pactl", "info"], capture_output=True, text=True, timeout=3)
+        for line in r.stdout.split("\n"):
+            if "Default Sink" in line:
+                sink = line.split(":")[-1].strip()
+                if sink:
+                    monitor = sink + ".monitor"
+                    r2 = subprocess.run(["pactl", "list", "sources", "short"],
+                                        capture_output=True, text=True, timeout=3)
+                    if monitor in r2.stdout:
+                        return monitor
+        r = subprocess.run(["pactl", "list", "sources", "short"],
+                           capture_output=True, text=True, timeout=3)
+        for line in r.stdout.strip().split("\n"):
+            if ".monitor" in line:
+                parts = line.split("\t")
+                if len(parts) > 1:
+                    return parts[1]
+    except Exception:
+        pass
+    return "default"
+
+
 class ScreenRecorder:
     def __init__(self, output_dir=None, indicator=None):
         self.recording = False
@@ -158,19 +185,6 @@ class ScreenRecorder:
         self._proc = None
         self._indicator = indicator
         os.makedirs(self.output_dir, exist_ok=True)
-
-    def _get_monitor_source(self):
-        try:
-            r = subprocess.run(["pactl", "list", "sources", "short"],
-                               capture_output=True, text=True, timeout=3)
-            for line in r.stdout.strip().split("\n"):
-                if ".monitor" in line:
-                    parts = line.split("\t")
-                    if len(parts) > 1:
-                        return parts[1]
-        except Exception:
-            pass
-        return "default"
 
     def _select_region(self):
         try:
@@ -213,7 +227,7 @@ class ScreenRecorder:
         self._output_file = os.path.join(self.output_dir, f"recording_{ts}.mp4")
         self.recording = True
 
-        audio_source = self._get_monitor_source()
+        audio_source = _get_monitor_source()
         display = os.environ.get("DISPLAY", ":0")
 
         if region:
@@ -318,6 +332,171 @@ class ScreenRecorder:
             self.start(region)
 
 
+class ReplayBuffer:
+    def __init__(self, output_dir, duration=60, indicator=None):
+        self.duration = duration
+        self.output_dir = output_dir
+        self._proc = None
+        self._running = False
+        self._saving = False
+        self._indicator = indicator
+        self.temp_dir = os.path.join(tempfile.gettempdir(), "screen-replay-buffer")
+        self._num_segments = 6
+        self._segment_time = max(1, duration // self._num_segments)
+        self._err_log = []
+
+    def _get_display_geometry(self):
+        try:
+            r = subprocess.run(["xdotool", "getdisplaygeometry"],
+                               capture_output=True, text=True, timeout=3)
+            if r.returncode == 0:
+                parts = r.stdout.strip().split()
+                if len(parts) == 2:
+                    return parts[0], parts[1]
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(["xdpyinfo"], capture_output=True, text=True, timeout=3)
+            for line in r.stdout.split("\n"):
+                if "dimensions" in line:
+                    parts = line.strip().split()[1].split("x")
+                    return parts[0], parts[1]
+        except Exception:
+            pass
+        return "1920", "1080"
+
+    def start(self):
+        os.makedirs(self.temp_dir, exist_ok=True)
+        for f in glob.glob(os.path.join(self.temp_dir, "seg_*")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+        audio_source = _get_monitor_source()
+        display = os.environ.get("DISPLAY", ":0")
+        w, h = self._get_display_geometry()
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "x11grab", "-s", f"{w}x{h}", "-i", f"{display}.0",
+            "-f", "pulse", "-i", audio_source,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-shortest",
+            "-f", "segment",
+            "-segment_time", str(self._segment_time),
+            "-segment_wrap", str(self._num_segments),
+            "-reset_timestamps", "1",
+            os.path.join(self.temp_dir, "seg_%d.ts")
+        ]
+
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+        )
+        self._running = True
+        self._err_log = []
+        print(f"[REPLAY BUFFER] Recording last {self.duration}s ({self._num_segments} x {self._segment_time}s) [src={audio_source}]")
+
+    def _read_stderr(self):
+        err = ""
+        if self._proc and self._proc.stderr:
+            try:
+                err = self._proc.stderr.read().decode(errors="replace")
+            except Exception:
+                pass
+        return err
+
+    def save(self):
+        if not self._running or not self._proc or self._saving:
+            return None
+        self._saving = True
+
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = os.path.join(self.output_dir, f"instant_replay_{ts}.mp4")
+
+        notify("Instant Replay", "Saving last {} seconds...".format(self.duration))
+
+        if self._proc.poll() is None:
+            self._proc.stdin.write(b"q")
+            self._proc.stdin.flush()
+            try:
+                self._proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=3)
+        buf_err = self._read_stderr()
+        if buf_err:
+            for line in buf_err.split("\n"):
+                if "error" in line.lower() or "fail" in line.lower():
+                    print(f"[REPLAY-BUF] {line.strip()}", flush=True)
+        self._running = False
+
+        seg_files = sorted(
+            glob.glob(os.path.join(self.temp_dir, "seg_*.ts")),
+            key=os.path.getmtime
+        )
+
+        if not seg_files:
+            notify("Replay Error", "No replay buffer data available")
+            self._saving = False
+            self.start()
+            return None
+
+        filelist = os.path.join(self.temp_dir, "filelist.txt")
+        with open(filelist, "w") as f:
+            for sf in seg_files:
+                f.write(f"file '{sf}'\n")
+
+        r = subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", filelist,
+            "-c", "copy",
+            output_file
+        ], capture_output=True, text=True, timeout=self.duration + 30)
+
+        if r.returncode == 0 and os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            probe = subprocess.run(["ffprobe", output_file],
+                                   capture_output=True, text=True, timeout=5)
+            has_audio = "Audio:" in probe.stderr
+            size = os.path.getsize(output_file)
+            name = os.path.basename(output_file)
+            if has_audio:
+                _copy_to_clipboard(output_file)
+                notify("Instant Replay Saved", f"{name}  ({size/1024:.0f} KB)")
+                print(f"[INSTANT REPLAY] → {output_file} ({size/1024:.0f} KB)")
+            else:
+                print(f"[WARNING] Replay file has no audio stream!", flush=True)
+                notify("Replay Warning", f"{name} has no audio stream")
+        else:
+            print(f"[ERROR] Replay concat failed: {r.stderr[:300]}", flush=True)
+            notify("Replay Error", "Failed to create replay file")
+            output_file = None
+
+        self._saving = False
+        self.start()
+        return output_file
+
+    def stop(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.stdin.write(b"q")
+            self._proc.stdin.flush()
+            try:
+                self._proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=3)
+        self._running = False
+        for f in glob.glob(os.path.join(self.temp_dir, "seg_*")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
 def _make_icon(recording=False):
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -394,12 +573,31 @@ def notify(title, body, urgency="normal"):
         pass
 
 
+def _check_combo(sym, mod_names_needed, pressed_mod_syms, target_sym):
+    if sym != target_sym:
+        return False
+    for needed_set in mod_names_needed:
+        if not pressed_mod_syms.intersection(needed_set):
+            return False
+    return True
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Screen Recorder")
+    parser = argparse.ArgumentParser(description="Screen Recorder with Instant Replay")
     parser.add_argument(
         "--shortcut", "-s",
         default="ctrl+shift+print_screen",
-        help="Key or combo to toggle recording (default: ctrl+shift+print_screen)"
+        help="Key combo to toggle recording (default: ctrl+shift+print_screen)"
+    )
+    parser.add_argument(
+        "--replay-shortcut", "-r",
+        default="ctrl+shift+f10",
+        help="Key combo to save instant replay (default: ctrl+shift+end)"
+    )
+    parser.add_argument(
+        "--replay-duration", "-d",
+        type=int, default=60,
+        help="Duration in seconds for instant replay buffer (default: 60)"
     )
     parser.add_argument(
         "--log-file", "-l",
@@ -414,7 +612,7 @@ def main():
         sys.stdout = open(args.log_file, "a", buffering=1)
         sys.stderr = sys.stdout
 
-    # Parse shortcut: ["ctrl", "shift", "print_screen"]
+    # Parse recording shortcut
     parts = args.shortcut.lower().replace("-", "_").split("+")
     main_key_name = parts[-1]
     mod_names = parts[:-1]
@@ -424,15 +622,31 @@ def main():
         print(f"[ERROR] Unknown key: {main_key_name}", flush=True)
         sys.exit(1)
 
-    # Required modifier sym sets
     req_mod_sym_sets = []
     for m in mod_names:
         s = MOD_SYMS.get(m, set())
         if s:
             req_mod_sym_sets.append(s)
 
+    # Parse replay shortcut
+    rparts = args.replay_shortcut.lower().replace("-", "_").split("+")
+    replay_key_name = rparts[-1]
+    replay_mod_names = rparts[:-1]
+
+    replay_sym = KEY_SYM_MAP.get(replay_key_name) or _char_sym(replay_key_name)
+    if replay_sym is None:
+        print(f"[ERROR] Unknown key: {replay_key_name}", flush=True)
+        sys.exit(1)
+
+    replay_mod_sym_sets = []
+    for m in replay_mod_names:
+        s = MOD_SYMS.get(m, set())
+        if s:
+            replay_mod_sym_sets.append(s)
+
     indicator = RecordingIndicator()
     recorder = ScreenRecorder(indicator=indicator)
+    replay_buffer = ReplayBuffer(recorder.output_dir, args.replay_duration, indicator=indicator)
     stop_event = threading.Event()
     pressed_mod_syms = set()
 
@@ -445,6 +659,7 @@ def main():
         print("\n[QUIT] Stopping...", flush=True)
         if recorder.recording:
             recorder.cleanup()
+        replay_buffer.stop()
         indicator.hide()
         listener.stop()
         stop_event.set()
@@ -476,34 +691,34 @@ def main():
             return
 
         # Track modifier keys
-        if sym in MOD_SYMS.get("ctrl", set()) or \
-           sym in MOD_SYMS.get("shift", set()) or \
-           sym in MOD_SYMS.get("alt", set()) or \
-           sym in MOD_SYMS.get("super", set()):
-            for mod_set in MOD_SYMS.values():
-                if sym in mod_set:
-                    if is_press:
-                        pressed_mod_syms.add(sym)
-                    else:
-                        pressed_mod_syms.discard(sym)
+        all_mod_syms = set()
+        for ms in MOD_SYMS.values():
+            all_mod_syms.update(ms)
+        if sym in all_mod_syms:
+            if is_press:
+                pressed_mod_syms.add(sym)
+            else:
+                pressed_mod_syms.discard(sym)
+            return
 
         if not is_press:
             return
 
-        if sym != main_sym:
+        if _check_combo(sym, req_mod_sym_sets, pressed_mod_syms, main_sym):
+            recorder.toggle()
             return
 
-        # All required modifiers must be pressed
-        for needed_set in req_mod_sym_sets:
-            if not pressed_mod_syms.intersection(needed_set):
-                return
+        if _check_combo(sym, replay_mod_sym_sets, pressed_mod_syms, replay_sym):
+            t = threading.Thread(target=replay_buffer.save, daemon=True)
+            t.start()
 
-        recorder.toggle()
+    notify("Screen Recorder", "Ctrl+Shift+PrtSc=record  Ctrl+Shift+End=instant replay")
+    print("=== Screen Recorder with Instant Replay ===", flush=True)
+    print(f"  Record:      {args.shortcut}", flush=True)
+    print(f"  Instant Replay: {args.replay_shortcut}  ({args.replay_duration}s buffer)", flush=True)
+    print("  Press  Ctrl+C  to quit\n", flush=True)
 
-    notify("Screen Recorder", "Press Ctrl+Shift+Print Screen to select region and record")
-    print("=== Screen Recorder (System Audio) ===", flush=True)
-    print(f"Press  {args.shortcut}  to start / stop recording", flush=True)
-    print("Press  Ctrl+C  to quit\n", flush=True)
+    replay_buffer.start()
 
     listener = XInputListener(on_key)
     if not listener.start():
