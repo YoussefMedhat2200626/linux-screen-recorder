@@ -177,6 +177,26 @@ def _get_monitor_source():
     return "default"
 
 
+def _get_mic_source():
+    try:
+        r = subprocess.run(["pactl", "info"], capture_output=True, text=True, timeout=3)
+        for line in r.stdout.split("\n"):
+            if "Default Source" in line:
+                src = line.split(":")[-1].strip()
+                if src:
+                    return src
+        r = subprocess.run(["pactl", "list", "sources", "short"],
+                           capture_output=True, text=True, timeout=3)
+        for line in r.stdout.strip().split("\n"):
+            if ".monitor" not in line and "input" in line:
+                parts = line.split("\t")
+                if len(parts) > 1:
+                    return parts[1]
+    except Exception:
+        pass
+    return None
+
+
 class ScreenRecorder:
     def __init__(self, output_dir=None, indicator=None):
         self.recording = False
@@ -333,13 +353,15 @@ class ScreenRecorder:
 
 
 class ReplayBuffer:
-    def __init__(self, output_dir, duration=60, indicator=None):
+    def __init__(self, output_dir, duration=60, indicator=None, mic_source=None, mic_gain=2.0):
         self.duration = duration
         self.output_dir = output_dir
         self._proc = None
         self._running = False
         self._saving = False
         self._indicator = indicator
+        self.mic_source = mic_source
+        self.mic_gain = mic_gain
         self.temp_dir = os.path.join(tempfile.gettempdir(), "screen-replay-buffer")
         self._num_segments = 6
         self._segment_time = max(1, duration // self._num_segments)
@@ -381,6 +403,21 @@ class ReplayBuffer:
             "ffmpeg", "-y",
             "-f", "x11grab", "-s", f"{w}x{h}", "-i", f"{display}.0",
             "-f", "pulse", "-i", audio_source,
+        ]
+
+        audio_label = audio_source
+        if self.mic_source:
+            cmd += ["-f", "pulse", "-i", self.mic_source]
+            audio_label = f"{audio_source} + {self.mic_source} (gain={self.mic_gain}x)"
+            cmd += [
+                "-filter_complex",
+                f"[2:a]volume={self.mic_gain}[mic];[1:a][mic]amix=inputs=2:duration=first[a]",
+                "-map", "0:v", "-map", "[a]",
+            ]
+        else:
+            cmd += ["-map", "0:v", "-map", "1:a"]
+
+        cmd += [
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-shortest",
@@ -398,7 +435,7 @@ class ReplayBuffer:
         )
         self._running = True
         self._err_log = []
-        print(f"[REPLAY BUFFER] Recording last {self.duration}s ({self._num_segments} x {self._segment_time}s) [src={audio_source}]")
+        print(f"[REPLAY BUFFER] Recording last {self.duration}s ({self._num_segments} x {self._segment_time}s) [audio={audio_label}]")
 
     def _read_stderr(self):
         err = ""
@@ -440,6 +477,8 @@ class ReplayBuffer:
         )
 
         if not seg_files:
+            if buf_err:
+                print(f"[REPLAY-BUF STDERR] {buf_err[:500]}", flush=True)
             notify("Replay Error", "No replay buffer data available")
             self._saving = False
             self.start()
@@ -600,6 +639,19 @@ def main():
         help="Duration in seconds for instant replay buffer (default: 60)"
     )
     parser.add_argument(
+        "--replay-mic", "-m",
+        default="__auto__", const="__auto__", nargs="?",
+        help="Include mic in instant replay. Specify a pulse source name, or omit for auto-detect. Use --no-replay-mic to disable."
+    )
+    parser.add_argument(
+        "--no-replay-mic", action="store_true",
+        help="Disable mic in instant replay."
+    )
+    parser.add_argument(
+        "--replay-mic-gain", type=float, default=2.0,
+        help="Mic volume multiplier (default: 2.0)"
+    )
+    parser.add_argument(
         "--log-file", "-l",
         default=None,
         help="Log output to a file instead of stdout (useful for autostart)"
@@ -646,7 +698,16 @@ def main():
 
     indicator = RecordingIndicator()
     recorder = ScreenRecorder(indicator=indicator)
-    replay_buffer = ReplayBuffer(recorder.output_dir, args.replay_duration, indicator=indicator)
+
+    mic_source = None
+    if args.no_replay_mic:
+        print("  Replay Mic:  disabled by --no-replay-mic")
+    elif args.replay_mic == "__auto__" or args.replay_mic is None:
+        mic_source = _get_mic_source()
+    else:
+        mic_source = args.replay_mic
+
+    replay_buffer = ReplayBuffer(recorder.output_dir, args.replay_duration, indicator=indicator, mic_source=mic_source, mic_gain=args.replay_mic_gain)
     stop_event = threading.Event()
     pressed_mod_syms = set()
 
@@ -716,6 +777,12 @@ def main():
     print("=== Screen Recorder with Instant Replay ===", flush=True)
     print(f"  Record:      {args.shortcut}", flush=True)
     print(f"  Instant Replay: {args.replay_shortcut}  ({args.replay_duration}s buffer)", flush=True)
+    if mic_source:
+        print(f"  Replay Mic:  {mic_source}", flush=True)
+    elif args.no_replay_mic:
+        print(f"  Replay Mic:  disabled", flush=True)
+    else:
+        print(f"  Replay Mic:  none (no mic detected)", flush=True)
     print("  Press  Ctrl+C  to quit\n", flush=True)
 
     replay_buffer.start()

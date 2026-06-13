@@ -2,7 +2,7 @@
 
 Lightweight screen recorder for Ubuntu/Linux with **Instant Replay** (like NVIDIA ShadowPlay).
 
-Select any area on screen and record it with system audio — or keep a rolling 60-second buffer and save the last minute on demand.
+Select any area on screen and record it with system audio (+ microphone) — or keep a rolling 60-second buffer and save the last minute on demand.
 
 ## How to install
 
@@ -43,7 +43,9 @@ Your mouse cursor will turn into a crosshair. Click and drag to select the area 
 
 **Step 3 — Instant Replay:** Press **Ctrl + Shift + F10**
 
-Saves the last 60 seconds of your screen (with audio) to `~/Videos/instant_replay_*.mp4`. The buffer runs continuously in the background — press the shortcut anytime to capture what just happened.
+Saves the last 60 seconds of your screen (with system audio + mic) to `~/Videos/instant_replay_*.mp4`. The buffer runs continuously in the background — press the shortcut anytime to capture what just happened.
+
+Microphone is auto-detected and included by default (2x gain). Disable with `--no-replay-mic` or adjust gain with `--replay-mic-gain 3.0`.
 
 Recordings are saved to `~/Videos/` and copied to your clipboard — just press **Ctrl + V** anywhere to share.
 
